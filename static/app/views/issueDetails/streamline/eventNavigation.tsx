@@ -1,5 +1,4 @@
-import {type CSSProperties, forwardRef} from 'react';
-import {Fragment} from 'react';
+import {type CSSProperties, forwardRef, Fragment, useMemo} from 'react';
 import {css, type SerializedStyles, useTheme} from '@emotion/react';
 import styled from '@emotion/styled';
 import color from 'color';
@@ -46,6 +45,7 @@ type EventNavigationProps = {
   event: Event;
   group: Group;
   className?: string;
+  query?: string;
   style?: CSSProperties;
 };
 
@@ -82,7 +82,7 @@ const sectionLabels = {
 };
 
 export const EventNavigation = forwardRef<HTMLDivElement, EventNavigationProps>(
-  function EventNavigation({event, group, ...props}, ref) {
+  function EventNavigation({event, group, query, ...props}, ref) {
     const location = useLocation();
     const organization = useOrganization();
     const theme = useTheme();
@@ -105,7 +105,10 @@ export const EventNavigation = forwardRef<HTMLDivElement, EventNavigationProps>(
 
     const hasEventError = actionableItems?.errors && actionableItems.errors.length > 0;
 
-    const getSelectedOption = () => {
+    const selectedOption = useMemo(() => {
+      if (query?.trim()) {
+        return EventNavOptions.CUSTOM;
+      }
       switch (params.eventId) {
         case EventNavOptions.RECOMMENDED:
         case EventNavOptions.LATEST:
@@ -116,9 +119,7 @@ export const EventNavigation = forwardRef<HTMLDivElement, EventNavigationProps>(
         default:
           return EventNavOptions.CUSTOM;
       }
-    };
-
-    const selectedOption = getSelectedOption();
+    }, [query, params.eventId, defaultIssueEvent]);
 
     const hasPreviousEvent = defined(event.previousEventID);
     const hasNextEvent = defined(event.nextEventID);
