@@ -1,39 +1,80 @@
 import styled from '@emotion/styled';
 
-import {BarChart} from 'sentry/components/charts/barChart';
-import {t} from 'sentry/locale';
+import {BarChart, type BarChartSeries} from 'sentry/components/charts/barChart';
+import {t, tn} from 'sentry/locale';
 import {space} from 'sentry/styles/space';
+import type {TimeseriesValue} from 'sentry/types/core';
+import type {SeriesDataUnit} from 'sentry/types/echarts';
+import type {Group} from 'sentry/types/group';
+import {defined} from 'sentry/utils';
+import theme from 'sentry/utils/theme';
+import usePageFilters from 'sentry/utils/usePageFilters';
 
-export function EventGraph({}: {}) {
+export function EventGraph({group, groupStats}: {group: Group; groupStats?: any}) {
+  const {selection} = usePageFilters();
+  const {environments} = selection;
+  const series: BarChartSeries[] = [];
+  const stats: TimeseriesValue[] = groupStats
+    ? groupStats.eventStats
+    : group?.stats?.custom ?? group?.stats['30d'];
+
+  const {data, eventCount} = stats.reduce(
+    (result, [timestamp, count]) => {
+      return {
+        data: [
+          ...result.data,
+          {
+            name: timestamp * 1000, // ms -> s
+            value: count,
+          },
+        ],
+        eventCount: result.eventCount + count,
+      };
+    },
+    {data: [] as SeriesDataUnit[], eventCount: 0}
+  );
+
+  if (environments) {
+    series.push({
+      seriesName: t('Events'),
+      itemStyle: {
+        borderRadius: [2, 2, 0, 0],
+        borderColor: theme.translucentGray200,
+        color: theme.gray200,
+      },
+      data,
+    });
+  }
+
   return (
     <GraphWrapper>
       <SummaryContainer>
         <div>
-          <Label>{t('Events')}</Label>
-          <Count>{459}</Count>
+          <Label>{tn('Event', 'Events', eventCount)}</Label>
+          <Count>{eventCount}</Count>
         </div>
-        <div>
-          <Label>{t('Users')}</Label>
-          <Count>{200}</Count>
-        </div>
+        {defined(groupStats?.userCount) && (
+          <div>
+            <Label>{tn('User', 'Users', groupStats.userCount)}</Label>
+            <Count>{groupStats.userCount}</Count>
+          </div>
+        )}
       </SummaryContainer>
       <ChartContainer>
         <BarChart
           height={80}
-          series={[
-            {
-              data: [
-                {name: 'something1', value: 120},
-                {name: 'something2', value: 200},
-                {name: 'something3', value: 150},
-                {name: 'something4', value: 80},
-                {name: 'something5', value: 70},
-                {name: 'something6', value: 110},
-              ],
-              type: 'bar',
-              seriesName: 'something ELSE',
-            },
-          ]}
+          series={series}
+          isGroupedByDate
+          showTimeInTooltip
+          grid={{
+            top: 8,
+            left: 8,
+            right: 8,
+            bottom: 0,
+          }}
+          yAxis={{
+            splitNumber: 2,
+          }}
         />
       </ChartContainer>
     </GraphWrapper>
@@ -62,13 +103,11 @@ const Count = styled('div')`
   line-height: 1;
 `;
 
-const ChartContainer = styled('div')``;
-
-// const GraphDivider = styled(Divider)`
-//   height: 100%;
-// `;
+const ChartContainer = styled('div')`
+  height: 80px;
+`;
 
 const GraphWrapper = styled('div')`
   display: grid;
-  grid-template-columns: auto auto 1fr;
+  grid-template-columns: auto 1fr;
 `;
