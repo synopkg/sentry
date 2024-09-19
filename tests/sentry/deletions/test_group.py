@@ -1,6 +1,5 @@
-from collections.abc import Sequence
 from datetime import datetime, timedelta
-from time import sleep, time
+from time import time
 from typing import Any
 from unittest import mock
 from uuid import uuid4
@@ -207,11 +206,11 @@ class DeleteIssuePlatformTest(TestCase, SnubaTestCase, OccurrenceTestMixin):
         start = now - timedelta(days=1)
         end = now + timedelta(days=1)
 
-        def query_issue_platform_dataset(occurrence_ids: Sequence[str]) -> Any:
+        def query_rows() -> Any:
             proj_col = Column("project_id")
             query = Query(
                 match=Entity(EntityKey.IssuePlatform.value),
-                select=[Column("id"), Column("occurrence_id")],
+                select=[Column("group_id"), Column("event_id"), Column("occurrence_id")],
                 where=[
                     Condition(proj_col, Op.IN, Function("tuple", [self.project.id])),
                     Condition(Column("timestamp"), Op.GTE, start),
@@ -228,7 +227,9 @@ class DeleteIssuePlatformTest(TestCase, SnubaTestCase, OccurrenceTestMixin):
             results = raw_snql_query(request, referrer=referrer)["data"]
             return results
 
+        # Create initial event
         event = self.store_event(data={}, project_id=self.project.id)
+        # Create occurrence associated to initial event; two different groups will exist
         issue_occurrence, group_info = self.process_occurrence(
             event_id=event.event_id,
             project_id=self.project.id,
@@ -239,13 +240,20 @@ class DeleteIssuePlatformTest(TestCase, SnubaTestCase, OccurrenceTestMixin):
                 "timestamp": before_now(minutes=1).isoformat(),
             },
         )
-        # There's a delay to inserting in Snuba
-        sleep(1)
-        assert query_issue_platform_dataset([issue_occurrence.id]) == {self.project.id: 1}
+
         assert group_info is not None
         issue_platform_group = group_info.group
         assert event.group_id != issue_platform_group.id
+        # Assert that the occurrence has been inserted in Snuba
+        assert query_rows() == [
+            {
+                "event_id": event.event_id,
+                "group_id": issue_platform_group.id,
+                "occurrence_id": issue_occurrence.id,
+            }
+        ]
 
+        # This will delete the group and the events from the node store
         with self.tasks():
             delete_groups(object_ids=[issue_platform_group.id])
 
@@ -261,4 +269,10 @@ class DeleteIssuePlatformTest(TestCase, SnubaTestCase, OccurrenceTestMixin):
         assert not nodestore.backend.get(node_id)
 
         # We have not yet added support to delete the event
-        assert query_issue_platform_dataset() == {self.project.id: 1}
+        assert query_rows() == [
+            {
+                "event_id": event.event_id,
+                "group_id": group_info.group.id,
+                "occurrence_id": issue_occurrence.id,
+            }
+        ]
