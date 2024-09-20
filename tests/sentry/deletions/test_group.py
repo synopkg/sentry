@@ -202,11 +202,16 @@ class DeleteGroupTest(TestCase, SnubaTestCase):
 class DeleteIssuePlatformTest(TestCase, SnubaTestCase, OccurrenceTestMixin):
     def test_issue_platform(self):
         now = datetime.now()
-        # Reusing the start and end value helps the Snuba query to use the cache if all other parameters are the same
-        start = now - timedelta(days=1)
-        end = now + timedelta(days=1)
+        # Calls to Snuba get cached, thus, we will bump the timestamp by a second to avoid cache hits
+        extra_second = 0
 
         def query_rows() -> Any:
+            nonlocal extra_second  # Allows modification of extra_second in the enclosing scope
+            # Reusing the start and end value helps the Snuba query to use the cache if all other parameters are the same
+            start = now - timedelta(days=1, seconds=extra_second)
+            end = now + timedelta(days=1, seconds=extra_second)
+            extra_second += 1
+
             proj_col = Column("project_id")
             query = Query(
                 match=Entity(EntityKey.IssuePlatform.value),
@@ -229,6 +234,7 @@ class DeleteIssuePlatformTest(TestCase, SnubaTestCase, OccurrenceTestMixin):
 
         # Create initial event
         event = self.store_event(data={}, project_id=self.project.id)
+        assert query_rows() == []
         # Create occurrence associated to initial event; two different groups will exist
         issue_occurrence, group_info = self.process_occurrence(
             event_id=event.event_id,
@@ -268,7 +274,7 @@ class DeleteIssuePlatformTest(TestCase, SnubaTestCase, OccurrenceTestMixin):
         node_id = Event.generate_node_id(issue_occurrence.project_id, issue_occurrence.id)
         assert not nodestore.backend.get(node_id)
 
-        # We have not yet added support to delete the event
+        # We have not yet added support to delete the event from Snuba
         assert query_rows() == [
             {
                 "event_id": event.event_id,
