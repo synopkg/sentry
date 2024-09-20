@@ -207,7 +207,6 @@ class DeleteIssuePlatformTest(TestCase, SnubaTestCase, OccurrenceTestMixin):
 
         def query_rows() -> Any:
             nonlocal extra_second  # Allows modification of extra_second in the enclosing scope
-            # Reusing the start and end value helps the Snuba query to use the cache if all other parameters are the same
             start = now - timedelta(days=1, seconds=extra_second)
             end = now + timedelta(days=1, seconds=extra_second)
             extra_second += 1
