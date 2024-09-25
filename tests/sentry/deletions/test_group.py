@@ -23,7 +23,7 @@ from sentry.models.userreport import UserReport
 from sentry.snuba.dataset import Dataset, EntityKey
 from sentry.testutils.cases import SnubaTestCase, TestCase
 from sentry.testutils.helpers.datetime import before_now, iso_format
-from sentry.utils.snuba import raw_snql_query
+from sentry.utils.snuba import bulk_snuba_queries
 from tests.sentry.issues.test_utils import OccurrenceTestMixin
 
 
@@ -202,21 +202,16 @@ class DeleteGroupTest(TestCase, SnubaTestCase):
 class DeleteIssuePlatformTest(TestCase, SnubaTestCase, OccurrenceTestMixin):
     def test_issue_platform(self):
         now = datetime.now()
-        # Calls to Snuba get cached, thus, we will bump the timestamp by a second to avoid cache hits
-        extra_second = 0
 
         def query_rows() -> Any:
-            nonlocal extra_second  # Allows modification of extra_second in the enclosing scope
-            start = now - timedelta(days=1, seconds=extra_second)
-            end = now + timedelta(days=1, seconds=extra_second)
-            extra_second += 1
+            start = now - timedelta(days=1)
+            end = now + timedelta(days=1)
 
-            proj_col = Column("project_id")
             query = Query(
                 match=Entity(EntityKey.IssuePlatform.value),
                 select=[Column("group_id"), Column("event_id"), Column("occurrence_id")],
                 where=[
-                    Condition(proj_col, Op.IN, Function("tuple", [self.project.id])),
+                    Condition(Column("project_id"), Op.IN, Function("tuple", [self.project.id])),
                     Condition(Column("timestamp"), Op.GTE, start),
                     Condition(Column("timestamp"), Op.LT, end),
                 ],
@@ -228,7 +223,7 @@ class DeleteIssuePlatformTest(TestCase, SnubaTestCase, OccurrenceTestMixin):
                 query=query,
                 tenant_ids={"referrer": referrer, "organization_id": self.organization.id},
             )
-            results = raw_snql_query(request, referrer=referrer)["data"]
+            results = bulk_snuba_queries([request], referrer=referrer, use_cache=False)[0]["data"]
             return results
 
         # Create initial event
@@ -273,11 +268,5 @@ class DeleteIssuePlatformTest(TestCase, SnubaTestCase, OccurrenceTestMixin):
         node_id = Event.generate_node_id(issue_occurrence.project_id, issue_occurrence.id)
         assert not nodestore.backend.get(node_id)
 
-        # We have not yet added support to delete the event from Snuba
-        assert query_rows() == [
-            {
-                "event_id": event.event_id,
-                "group_id": group_info.group.id,
-                "occurrence_id": issue_occurrence.id,
-            }
-        ]
+        # The event is deleted from Snuba
+        assert query_rows() == []
