@@ -1,6 +1,5 @@
-from collections.abc import Callable
 from datetime import datetime, timedelta
-from time import sleep, time
+from time import time
 from typing import Any
 from unittest import mock
 from uuid import uuid4
@@ -225,25 +224,10 @@ class DeleteIssuePlatformTest(TestCase, SnubaTestCase, OccurrenceTestMixin):
         results = bulk_snuba_queries([request], referrer=referrer, use_cache=False)[0]["data"]
         return results
 
-    def _assert_n_times(self, query_rows: Callable[[], Any], expected_response: Any):
-        max_retries = 10
-        retry_delay = 0.2  # seconds
-
-        for attempt in range(max_retries):
-            rows = query_rows()
-            if rows == expected_response:
-                break
-            if attempt < max_retries - 1:
-                sleep(retry_delay)
-        else:
-            self.fail(
-                f"Expected row not found in Snuba after {max_retries} attempts. Last result: {rows}"
-            )
-
     def test_issue_platform(self):
         # Create initial event
         event = self.store_event(data={}, project_id=self.project.id)
-        assert self._query_issue_platform_rows() == []
+        assert self.assert_query_n_times() == []
         # Create occurrence associated to initial event; two different groups will exist
         issue_occurrence, group_info = self.process_occurrence(
             event_id=event.event_id,
@@ -268,7 +252,7 @@ class DeleteIssuePlatformTest(TestCase, SnubaTestCase, OccurrenceTestMixin):
                 "occurrence_id": issue_occurrence.id,
             }
         ]
-        self._assert_n_times(self._query_issue_platform_rows, expected_rows)
+        self.assert_query_n_times(self._query_issue_platform_rows, expected_rows)
 
         # This will delete the group and the events from the node store
         with self.tasks():
@@ -284,4 +268,4 @@ class DeleteIssuePlatformTest(TestCase, SnubaTestCase, OccurrenceTestMixin):
         node_id = Event.generate_node_id(issue_occurrence.project_id, issue_occurrence.id)
         assert not nodestore.backend.get(node_id)
         # We have not yet added support to delete the event from Snuba
-        self._assert_n_times(self._query_issue_platform_rows, expected_rows)
+        self.assert_query_n_times(self._query_issue_platform_rows, expected_rows)

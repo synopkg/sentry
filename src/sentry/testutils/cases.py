@@ -8,7 +8,7 @@ import random
 import re
 import time
 import uuid
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
 from io import BytesIO
@@ -1500,6 +1500,25 @@ class SnubaTestCase(BaseTestCase):
             ).status_code
             == 200
         )
+
+    def assert_query_n_times(self, query: Callable[[], Any], expected_response: Any):
+        """Query Snuba N times and assert that the response is equal to expected_response.
+
+        REMEMBER:Your query should not be caching results or this will be useless.
+        """
+        max_retries = 10
+        retry_delay = 0.2  # seconds
+
+        for attempt in range(max_retries):
+            rows = query()
+            if rows == expected_response:
+                break
+            if attempt < max_retries - 1:
+                time.sleep(retry_delay)
+        else:
+            self.fail(
+                f"Expected rows not found in Snuba after {max_retries} attempts. Last result: {rows}"
+            )
 
 
 class BaseSpansTestCase(SnubaTestCase):
