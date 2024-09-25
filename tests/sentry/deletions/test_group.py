@@ -227,7 +227,7 @@ class DeleteIssuePlatformTest(TestCase, SnubaTestCase, OccurrenceTestMixin):
     def test_issue_platform(self):
         # Create initial event
         event = self.store_event(data={}, project_id=self.project.id)
-        assert self.assert_query_n_times() == []
+        assert self.assert_query_n_times(self._query_issue_platform_rows, [])
         # Create occurrence associated to initial event; two different groups will exist
         issue_occurrence, group_info = self.process_occurrence(
             event_id=event.event_id,
