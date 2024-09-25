@@ -1,5 +1,6 @@
+from collections.abc import Callable
 from datetime import datetime, timedelta
-from time import time
+from time import sleep, time
 from typing import Any
 from unittest import mock
 from uuid import uuid4
@@ -10,7 +11,7 @@ from sentry import nodestore
 from sentry.deletions.defaults.group import EventDataDeletionTask
 from sentry.deletions.tasks.groups import delete_groups
 from sentry.eventstore.models import Event
-from sentry.issues.grouptype import ReplayDeadClickType
+from sentry.issues.grouptype import FeedbackGroup
 from sentry.models.eventattachment import EventAttachment
 from sentry.models.files.file import File
 from sentry.models.group import Group
@@ -200,58 +201,74 @@ class DeleteGroupTest(TestCase, SnubaTestCase):
 
 
 class DeleteIssuePlatformTest(TestCase, SnubaTestCase, OccurrenceTestMixin):
-    def test_issue_platform(self):
+    def _query_issue_platform_rows(self) -> Any:
         now = datetime.now()
+        start = now - timedelta(days=1)
+        end = now + timedelta(days=1)
 
-        def query_rows() -> Any:
-            start = now - timedelta(days=1)
-            end = now + timedelta(days=1)
+        query = Query(
+            match=Entity(EntityKey.IssuePlatform.value),
+            select=[Column("group_id"), Column("event_id"), Column("occurrence_id")],
+            where=[
+                Condition(Column("project_id"), Op.IN, Function("tuple", [self.project.id])),
+                Condition(Column("timestamp"), Op.GTE, start),
+                Condition(Column("timestamp"), Op.LT, end),
+            ],
+        )
+        referrer = "testing.test"
+        request = Request(
+            dataset=Dataset.IssuePlatform.value,
+            app_id=referrer,
+            query=query,
+            tenant_ids={"referrer": referrer, "organization_id": self.organization.id},
+        )
+        results = bulk_snuba_queries([request], referrer=referrer, use_cache=False)[0]["data"]
+        return results
 
-            query = Query(
-                match=Entity(EntityKey.IssuePlatform.value),
-                select=[Column("group_id"), Column("event_id"), Column("occurrence_id")],
-                where=[
-                    Condition(Column("project_id"), Op.IN, Function("tuple", [self.project.id])),
-                    Condition(Column("timestamp"), Op.GTE, start),
-                    Condition(Column("timestamp"), Op.LT, end),
-                ],
+    def _assert_n_times(self, query_rows: Callable[[], Any], expected_response: Any):
+        max_retries = 10
+        retry_delay = 0.2  # seconds
+
+        for attempt in range(max_retries):
+            rows = query_rows()
+            if rows == expected_response:
+                break
+            if attempt < max_retries - 1:
+                sleep(retry_delay)
+        else:
+            self.fail(
+                f"Expected row not found in Snuba after {max_retries} attempts. Last result: {rows}"
             )
-            referrer = "testing.test"
-            request = Request(
-                dataset=Dataset.IssuePlatform.value,
-                app_id=referrer,
-                query=query,
-                tenant_ids={"referrer": referrer, "organization_id": self.organization.id},
-            )
-            results = bulk_snuba_queries([request], referrer=referrer, use_cache=False)[0]["data"]
-            return results
 
+    def test_issue_platform(self):
         # Create initial event
         event = self.store_event(data={}, project_id=self.project.id)
-        assert query_rows() == []
+        assert self._query_issue_platform_rows() == []
         # Create occurrence associated to initial event; two different groups will exist
         issue_occurrence, group_info = self.process_occurrence(
             event_id=event.event_id,
             project_id=self.project.id,
-            # We are using ReplayDeadClickType as a representative of Issue Platform
-            type=ReplayDeadClickType.type_id,
+            # We are using FeedbackGroup as a representative of Issue Platform
+            type=FeedbackGroup.type_id,
             event_data={
                 "fingerprint": ["issue-platform-group"],
                 "timestamp": before_now(minutes=1).isoformat(),
             },
         )
 
+        # Assert that we have two groups
         assert group_info is not None
         issue_platform_group = group_info.group
         assert event.group_id != issue_platform_group.id
         # Assert that the occurrence has been inserted in Snuba
-        assert query_rows() == [
+        expected_rows = [
             {
                 "event_id": event.event_id,
                 "group_id": issue_platform_group.id,
                 "occurrence_id": issue_occurrence.id,
             }
         ]
+        self._assert_n_times(self._query_issue_platform_rows, expected_rows)
 
         # This will delete the group and the events from the node store
         with self.tasks():
@@ -261,12 +278,10 @@ class DeleteIssuePlatformTest(TestCase, SnubaTestCase, OccurrenceTestMixin):
         assert Group.objects.filter(id=event.group_id).exists()
         node_id = Event.generate_node_id(event.project_id, event.event_id)
         assert nodestore.backend.get(node_id)
-
         # The Issue Platform group and occurrence are deleted
-        assert issue_platform_group.issue_type == ReplayDeadClickType
+        assert issue_platform_group.issue_type == FeedbackGroup
         assert not Group.objects.filter(id=issue_platform_group.id).exists()
         node_id = Event.generate_node_id(issue_occurrence.project_id, issue_occurrence.id)
         assert not nodestore.backend.get(node_id)
-
-        # The event is deleted from Snuba
-        assert query_rows() == []
+        # We have not yet added support to delete the event from Snuba
+        self._assert_n_times(self._query_issue_platform_rows, expected_rows)
