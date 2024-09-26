@@ -1047,7 +1047,24 @@ class RuleFormContainer extends DeprecatedAsyncComponent<Props, State> {
       dataset,
       alertType,
       isQueryValid,
+      // sensitivity,
+      // seasonality
     } = this.state;
+    // const params = {
+    //   organization_id: organization.id,
+    //   project_id: project.id,
+    //   config: {
+    //     time_period: timeWindow,
+    //     sensitivity,
+    //     direction: thresholdType,
+    //     expected_seasonality: seasonality
+    //   },
+    //   context: {
+    //     history: [],
+    //     current: []
+    //   }
+    // }
+    // console.log('renderTriggerChart', { params });
 
     const isOnDemand = isOnDemandMetricAlert(dataset, aggregate, query);
 
@@ -1065,6 +1082,7 @@ class RuleFormContainer extends DeprecatedAsyncComponent<Props, State> {
       aggregate,
       formattedAggregate: formattedAggregate,
       dataset,
+      includePrevious: comparisonType === AlertRuleComparisonType.DYNAMIC,
       newAlertOrQuery: !ruleId || query !== rule.query,
       timeWindow,
       environment,
