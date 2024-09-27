@@ -7,7 +7,7 @@ from unittest.mock import patch
 import pytest
 from django.db import router, transaction
 
-from sentry.event_manager import _save_aggregate_new
+from sentry.event_manager import assign_event_to_group
 from sentry.eventstore.models import Event
 from sentry.models.grouphash import GroupHash
 from sentry.testutils.pytest.fixtures import django_db_all
@@ -79,7 +79,7 @@ def test_group_creation_race(monkeypatch, default_project, lock_disabled):
                 ),
                 patch("sentry.event_manager._materialize_metadata_many"),
             ):
-                group_info = _save_aggregate_new(**save_aggregate_kwargs)
+                group_info = assign_event_to_group(**save_aggregate_kwargs)
 
                 assert group_info is not None
                 return_values.append(group_info)
