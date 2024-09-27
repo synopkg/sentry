@@ -17,17 +17,17 @@ from sentry.testutils.pytest.fixtures import django_db_all
 @pytest.mark.parametrize(
     "lock_disabled",
     [
-        # group creation code with removed transaction isolation, which is then
-        # supposed to create multiple groups. This variant exists such that we can
-        # ensure the test would find race conditions in principle, and does not
-        # just always pass because of low parallelism. In a sense this variant
-        # tests the efficacy of this test, not actual business logic.
+        # Group creation code with disabled transaction isolation (which is what powers the lock),
+        # to show that without it, multiple groups are created when there's a race condition while
+        # ingesting events with the same data. This variant exists such that we can ensure the test
+        # would detect a malfunctioning lock in principle, and does not just always pass because of
+        # low parallelism. In a sense this variant tests the efficacy of this test, not actual
+        # business logic.
         #
-        # If this variant fails, CONCURRENCY needs to be increased or e.g. thread
-        # barriers need to be used to ensure data races. This does not seem to be
-        # necessary so far.
+        # If this variant fails, CONCURRENCY needs to be increased or e.g. thread barriers need to
+        # be used to ensure data races. This does not seem to be necessary so far.
         True,
-        # regular group creation code, which is supposed to not have races
+        # Regular group creation code, in which the lock should be working
         False,
     ],
     ids=(" lock_disabled: True ", " lock_disabled: False "),
@@ -86,6 +86,8 @@ def test_group_creation_race(monkeypatch, default_project, lock_disabled):
         finally:
             transaction.get_connection(router.db_for_write(GroupHash)).close()
 
+    # Save the same event data in multiple threads. If the lock is working, only one new group
+    # should be created
     threads = []
     for _ in range(CONCURRENCY):
         thread = Thread(target=save_event)
