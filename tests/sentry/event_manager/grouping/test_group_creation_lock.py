@@ -68,19 +68,21 @@ def test_group_creation_race_new(monkeypatch, default_project, is_race_free):
 
     def save_event():
         try:
-            with patch(
-                "sentry.grouping.ingest.hashing._calculate_event_grouping",
-                return_value=hashes,
-            ):
-                with patch(
+            with (
+                patch(
+                    "sentry.grouping.ingest.hashing._calculate_event_grouping",
+                    return_value=hashes,
+                ),
+                patch(
                     "sentry.event_manager._get_group_processing_kwargs",
                     return_value=group_processing_kwargs,
-                ):
-                    with patch("sentry.event_manager._materialize_metadata_many"):
-                        group_info = _save_aggregate_new(**save_aggregate_kwargs)
+                ),
+                patch("sentry.event_manager._materialize_metadata_many"),
+            ):
+                group_info = _save_aggregate_new(**save_aggregate_kwargs)
 
-                        assert group_info is not None
-                        return_values.append(group_info)
+                assert group_info is not None
+                return_values.append(group_info)
         finally:
             transaction.get_connection(router.db_for_write(GroupHash)).close()
 
