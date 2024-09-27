@@ -1294,21 +1294,7 @@ def get_culprit(data: Mapping[str, Any]) -> str:
 
 
 @sentry_sdk.tracing.trace
-def assign_event_to_group(event: Event, job: Job, metric_tags: MutableTags) -> GroupInfo | None:
-    group_info = _save_aggregate_new(
-        event=event,
-        job=job,
-        metric_tags=metric_tags,
-    )
-
-    if group_info:
-        event.group = group_info.group
-    job["groups"] = [group_info]
-
-    return group_info
-
-
-def _save_aggregate_new(
+def assign_event_to_group(
     event: Event,
     job: Job,
     metric_tags: MutableTags,
@@ -1367,6 +1353,15 @@ def _save_aggregate_new(
     # config, but will also be grandfathered into the current config for a week, so as not to
     # erroneously create new groups.
     update_grouping_config_if_needed(project, "ingest")
+
+    # The only way there won't be group info is if our search for an existing group leads us to a
+    # performance/cron/replay/other-non-error-type group. (As far as we know this has never
+    # happened, but in theory at least, the error event hashing algorithm and other event hashing
+    # algorithms could come up with the same hash value in the same project, which would lead to
+    # such a mismatch.)
+    if group_info:
+        event.group = group_info.group
+    job["groups"] = [group_info]
 
     return group_info
 
